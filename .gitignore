@@ -1,0 +1,24 @@
+# Virtual environment
+venv/
+.venv/
+
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# OS
+.DS_Store
+
+# Generated assets (QR codes, uploaded book covers/PDFs) — regenerated at runtime,
+# don't need to live in version control
+assets/qr_codes/*
+!assets/qr_codes/.gitkeep
+
+# IDE
+.vscode/
+.idea/
