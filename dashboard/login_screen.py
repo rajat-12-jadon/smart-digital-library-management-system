@@ -60,7 +60,26 @@ class LoginScreen:
             self.error_label.config(text=str(e))
             return
 
-        # login worked! for now just printing it, will open the real
-        # dashboard here once I build those (next step)
-        print(f"Login successful. Welcome {current_user.name} ({current_user.role})")
-        self.error_label.config(text=f"Welcome {current_user.name}!", fg="green")
+        # login worked, close this window and open the right dashboard
+        # based on role. importing here (not at top of file) to avoid
+        # circular imports, since the dashboards import LoginScreen back
+        # for their logout button
+        self.root.destroy()
+
+        new_root = tk.Tk()
+
+        if current_user.role == "admin":
+            from dashboard.admin_dashboard import AdminDashboard
+            AdminDashboard(new_root, current_user)
+        elif current_user.role == "librarian":
+            from dashboard.librarian_dashboard import LibrarianDashboard
+            LibrarianDashboard(new_root, current_user)
+        elif current_user.role == "student":
+            from dashboard.student_dashboard import StudentDashboard
+            StudentDashboard(new_root, current_user)
+        else:
+            # shouldn't happen since DB only allows these 3 roles,
+            # but just in case
+            tk.Label(new_root, text=f"Unknown role: {current_user.role}").pack()
+
+        new_root.mainloop()
