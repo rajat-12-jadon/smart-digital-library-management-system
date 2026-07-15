@@ -24,13 +24,22 @@ class AdminDashboard:
         )
         welcome_label.pack(pady=30)
 
-        # actual admin features (manage librarians, reports, etc)
-        # will go here in later phases
+        # book management is the first real admin feature. more
+        # buttons (manage librarians, reports, etc) will go here
+        # in later phases
+        manage_books_button = tk.Button(
+            self.root, text="Manage Books", command=self.open_book_management, width=20
+        )
+        manage_books_button.pack(pady=5)
 
         logout_button = tk.Button(
             self.root, text="Logout", command=self.handle_logout, width=15
         )
         logout_button.pack(pady=10)
+
+    def open_book_management(self):
+        from modules.books.book_ui import BookManagementWindow
+        BookManagementWindow(self.root)
 
     def handle_logout(self):
         # close this window and go back to login
