@@ -36,8 +36,8 @@ def register_student(name, email, phone, password):
             try:
                 cur.execute(
                     """
-                    INSERT INTO Users (name, email, phone, password, role)
-                    VALUES (%s, %s, %s, %s, 'student')
+                    INSERT INTO Users (name, email, phone, password, role, force_password_change)
+                    VALUES (%s, %s, %s, %s, 'student', TRUE)
                     RETURNING user_id
                     """,
                     (name, email, phone, hashed),
@@ -181,7 +181,7 @@ def reset_student_password(user_id, new_password):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE Users SET password = %s WHERE user_id = %s AND role = 'student'",
+                "UPDATE Users SET password = %s, force_password_change = TRUE WHERE user_id = %s AND role = 'student'",
                 (hashed, user_id),
             )
             if cur.rowcount == 0:

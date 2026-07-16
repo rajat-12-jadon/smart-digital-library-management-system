@@ -32,6 +32,11 @@ class AdminDashboard:
         )
         manage_books_button.pack(pady=5)
 
+        manage_librarians_button = tk.Button(
+            self.root, text="Manage Librarians", command=self.open_librarian_management, width=20
+        )
+        manage_librarians_button.pack(pady=5)
+
         logout_button = tk.Button(
             self.root, text="Logout", command=self.handle_logout, width=15
         )
@@ -40,6 +45,10 @@ class AdminDashboard:
     def open_book_management(self):
         from modules.books.book_ui import BookManagementWindow
         BookManagementWindow(self.root)
+
+    def open_librarian_management(self):
+        from modules.librarians.librarian_ui import LibrarianManagementWindow
+        LibrarianManagementWindow(self.root)
 
     def handle_logout(self):
         # close this window and go back to login

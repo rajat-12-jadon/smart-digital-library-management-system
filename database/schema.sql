@@ -33,6 +33,7 @@ CREATE TABLE Users (
     phone        VARCHAR(20),
     password     VARCHAR(255) NOT NULL,   -- stores bcrypt hash, never plaintext
     role         user_role NOT NULL,
+    force_password_change BOOLEAN NOT NULL DEFAULT FALSE,  -- TRUE for accounts created by an admin/librarian on someone else's behalf
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

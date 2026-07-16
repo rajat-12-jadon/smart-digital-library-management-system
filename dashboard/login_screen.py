@@ -68,18 +68,36 @@ class LoginScreen:
 
         new_root = tk.Tk()
 
+        if current_user.force_password_change:
+            # someone else set this account's password -- make them
+            # choose their own before going any further. open_dashboard
+            # is passed in as the "what happens after" callback
+            from dashboard.change_password_screen import ChangePasswordScreen
+            ChangePasswordScreen(
+                new_root, current_user,
+                on_success=lambda: self._open_dashboard(new_root, current_user)
+            )
+        else:
+            self._open_dashboard(new_root, current_user)
+
+        new_root.mainloop()
+
+    def _open_dashboard(self, root, current_user):
+        # clears out whatever screen was showing (login form or the
+        # change-password form) before putting up the real dashboard
+        for widget in root.winfo_children():
+            widget.destroy()
+
         if current_user.role == "admin":
             from dashboard.admin_dashboard import AdminDashboard
-            AdminDashboard(new_root, current_user)
+            AdminDashboard(root, current_user)
         elif current_user.role == "librarian":
             from dashboard.librarian_dashboard import LibrarianDashboard
-            LibrarianDashboard(new_root, current_user)
+            LibrarianDashboard(root, current_user)
         elif current_user.role == "student":
             from dashboard.student_dashboard import StudentDashboard
-            StudentDashboard(new_root, current_user)
+            StudentDashboard(root, current_user)
         else:
             # shouldn't happen since DB only allows these 3 roles,
             # but just in case
-            tk.Label(new_root, text=f"Unknown role: {current_user.role}").pack()
-
-        new_root.mainloop()
+            tk.Label(root, text=f"Unknown role: {current_user.role}").pack()

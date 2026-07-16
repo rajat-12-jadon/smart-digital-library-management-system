@@ -38,6 +38,7 @@ class CurrentUser:
     name: str
     email: str
     role: str  # 'admin' | 'librarian' | 'student'
+    force_password_change: bool = False
 
 
 def login(email: str, password: str) -> CurrentUser:
@@ -60,7 +61,7 @@ def login(email: str, password: str) -> CurrentUser:
             # injection happens.
             cur.execute(
                 """
-                SELECT user_id, name, email, password, role
+                SELECT user_id, name, email, password, role, force_password_change
                 FROM Users
                 WHERE email = %s
                 """,
@@ -72,7 +73,7 @@ def login(email: str, password: str) -> CurrentUser:
         logger.info("Login attempt for unknown email: %s", email)
         raise AuthenticationError("Invalid email or password.")
 
-    user_id, name, db_email, password_hash, role = row
+    user_id, name, db_email, password_hash, role, force_password_change = row
 
     if not verify_password(password, password_hash):
         logger.info("Failed login attempt for user_id=%s", user_id)
@@ -82,7 +83,40 @@ def login(email: str, password: str) -> CurrentUser:
     logger.info("Successful login for user_id=%s (%s)", user_id, role)
     _log_activity(user_id, "LOGIN")
 
-    return CurrentUser(user_id=user_id, name=name, email=db_email, role=role)
+    return CurrentUser(
+        user_id=user_id, name=name, email=db_email, role=role,
+        force_password_change=force_password_change,
+    )
+
+
+def change_password(user_id: int, new_password: str) -> None:
+    """
+    Used when a user changes their OWN password (as opposed to
+    reset_student_password / reset_librarian_password, which are an
+    admin/librarian changing someone ELSE's password). Clears
+    force_password_change so they aren't asked again next login.
+    """
+    from auth.password_utils import hash_password
+
+    if not new_password:
+        raise ValueError("New password cannot be empty.")
+
+    hashed = hash_password(new_password)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE Users
+                SET password = %s, force_password_change = FALSE
+                WHERE user_id = %s
+                """,
+                (hashed, user_id),
+            )
+        conn.commit()
+
+    logger.info("Password changed by user_id=%s", user_id)
+    _log_activity(user_id, "PASSWORD_CHANGED_BY_SELF")
 
 
 def _log_activity(user_id: int, action: str) -> None:
