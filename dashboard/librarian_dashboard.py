@@ -24,13 +24,22 @@ class LibrarianDashboard:
         )
         welcome_label.pack(pady=30)
 
-        # actual librarian features (register student, issue/return
-        # books, reservations, fines) will go here in later phases
+        # student management is the first real librarian feature.
+        # more buttons (issue/return, reservations, fines) will go
+        # here in later phases
+        manage_students_button = tk.Button(
+            self.root, text="Manage Students", command=self.open_student_management, width=20
+        )
+        manage_students_button.pack(pady=5)
 
         logout_button = tk.Button(
             self.root, text="Logout", command=self.handle_logout, width=15
         )
         logout_button.pack(pady=10)
+
+    def open_student_management(self):
+        from modules.students.student_ui import StudentManagementWindow
+        StudentManagementWindow(self.root)
 
     def handle_logout(self):
         self.root.destroy()
