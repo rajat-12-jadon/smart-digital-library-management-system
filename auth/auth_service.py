@@ -101,10 +101,25 @@ def change_password(user_id: int, new_password: str) -> None:
     if not new_password:
         raise ValueError("New password cannot be empty.")
 
-    hashed = hash_password(new_password)
-
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # fetch the CURRENT password hash first, so we can check
+            # whether the "new" password is actually the same as the
+            # old one before wasting a hash computation on it
+            cur.execute("SELECT password FROM Users WHERE user_id = %s", (user_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError(f"No user found with id {user_id}")
+
+            current_hash = row[0]
+
+            if verify_password(new_password, current_hash):
+                raise ValueError(
+                    "New password must be different from your current password."
+                )
+
+            hashed = hash_password(new_password)
+
             cur.execute(
                 """
                 UPDATE Users
