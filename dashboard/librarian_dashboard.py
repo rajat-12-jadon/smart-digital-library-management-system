@@ -32,6 +32,11 @@ class LibrarianDashboard:
         )
         manage_students_button.pack(pady=5)
 
+        issue_book_button = tk.Button(
+            self.root, text="Issue Book", command=self.open_issue_book, width=20
+        )
+        issue_book_button.pack(pady=5)
+
         logout_button = tk.Button(
             self.root, text="Logout", command=self.handle_logout, width=15
         )
@@ -40,6 +45,10 @@ class LibrarianDashboard:
     def open_student_management(self):
         from modules.students.student_ui import StudentManagementWindow
         StudentManagementWindow(self.root)
+
+    def open_issue_book(self):
+        from modules.issue_return.issue_ui import IssueBookWindow
+        IssueBookWindow(self.root, self.current_user)
 
     def handle_logout(self):
         self.root.destroy()
