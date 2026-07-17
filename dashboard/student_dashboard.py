@@ -24,13 +24,31 @@ class StudentDashboard:
         )
         welcome_label.pack(pady=30)
 
-        # actual student features (search books, reserve, view
-        # issued books, view fines) will go here in later phases
+        # reservation is the first real student feature. more buttons
+        # (search books, view issued books, view fines) will go here
+        # in later phases
+        reserve_button = tk.Button(
+            self.root, text="Reserve a Book", command=self.open_reserve_book, width=20
+        )
+        reserve_button.pack(pady=5)
+
+        change_password_button = tk.Button(
+            self.root, text="Change Password", command=self.open_change_password, width=20
+        )
+        change_password_button.pack(pady=5)
 
         logout_button = tk.Button(
             self.root, text="Logout", command=self.handle_logout, width=15
         )
         logout_button.pack(pady=10)
+
+    def open_reserve_book(self):
+        from modules.reservation.reservation_ui import ReserveBookWindow
+        ReserveBookWindow(self.root, self.current_user)
+
+    def open_change_password(self):
+        from dashboard.change_password_dialog import ChangePasswordDialog
+        ChangePasswordDialog(self.root, self.current_user)
 
     def handle_logout(self):
         self.root.destroy()

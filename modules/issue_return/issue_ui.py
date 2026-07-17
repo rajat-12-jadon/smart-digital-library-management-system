@@ -155,18 +155,24 @@ class IssueBookWindow:
             return
 
         try:
-            late_days, fine_amount = return_book(issue_id)
+            late_days, fine_amount, fulfilled_student_id = return_book(issue_id)
         except ValueError as e:
             messagebox.showerror("Error", str(e))
             return
 
+        message_lines = []
         if late_days > 0:
-            messagebox.showinfo(
-                "Returned (Late)",
-                f"Book returned, {late_days} day(s) late.\nFine: Rs. {fine_amount}",
-            )
+            message_lines.append(f"Returned {late_days} day(s) late. Fine: Rs. {fine_amount}")
         else:
-            messagebox.showinfo("Returned", "Book returned on time. No fine.")
+            message_lines.append("Returned on time. No fine.")
+
+        if fulfilled_student_id is not None:
+            message_lines.append(
+                "\nA student had this book reserved -- their reservation is now marked "
+                "as fulfilled. Issue it to them when they come in."
+            )
+
+        messagebox.showinfo("Book Returned", "\n".join(message_lines))
 
         # the book that was just returned should now show up as
         # available again, and might have more copies available -- so

@@ -37,6 +37,11 @@ class AdminDashboard:
         )
         manage_librarians_button.pack(pady=5)
 
+        change_password_button = tk.Button(
+            self.root, text="Change Password", command=self.open_change_password, width=20
+        )
+        change_password_button.pack(pady=5)
+
         logout_button = tk.Button(
             self.root, text="Logout", command=self.handle_logout, width=15
         )
@@ -49,6 +54,10 @@ class AdminDashboard:
     def open_librarian_management(self):
         from modules.librarians.librarian_ui import LibrarianManagementWindow
         LibrarianManagementWindow(self.root)
+
+    def open_change_password(self):
+        from dashboard.change_password_dialog import ChangePasswordDialog
+        ChangePasswordDialog(self.root, self.current_user)
 
     def handle_logout(self):
         # close this window and go back to login

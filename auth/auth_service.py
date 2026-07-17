@@ -134,6 +134,53 @@ def change_password(user_id: int, new_password: str) -> None:
     _log_activity(user_id, "PASSWORD_CHANGED_BY_SELF")
 
 
+def change_own_password(user_id: int, current_password: str, new_password: str) -> None:
+    """
+    Used when a user VOLUNTARILY changes their own password from a
+    dashboard (as opposed to change_password(), which is used by the
+    forced first-login flow, right after login already verified who
+    they are). This one requires re-entering the current password --
+    a safeguard in case someone walks up to an unlocked/unattended
+    session, they still can't lock the real owner out without knowing
+    the current password.
+    """
+    if not current_password or not new_password:
+        raise ValueError("Both current and new password are required.")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password FROM Users WHERE user_id = %s", (user_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError(f"No user found with id {user_id}")
+
+            current_hash = row[0]
+
+            if not verify_password(current_password, current_hash):
+                raise ValueError("Current password is incorrect.")
+
+            if verify_password(new_password, current_hash):
+                raise ValueError(
+                    "New password must be different from your current password."
+                )
+
+            from auth.password_utils import hash_password
+            hashed = hash_password(new_password)
+
+            cur.execute(
+                """
+                UPDATE Users
+                SET password = %s, force_password_change = FALSE
+                WHERE user_id = %s
+                """,
+                (hashed, user_id),
+            )
+        conn.commit()
+
+    logger.info("Password voluntarily changed by user_id=%s", user_id)
+    _log_activity(user_id, "PASSWORD_CHANGED_BY_SELF")
+
+
 def _log_activity(user_id: int, action: str) -> None:
     """
     Writes to Activity_Log. Kept as a small internal helper here for

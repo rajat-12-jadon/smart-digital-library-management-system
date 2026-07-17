@@ -14,6 +14,7 @@ from datetime import date, timedelta
 
 from database import get_connection
 from config import FINE_RULES
+from modules.reservation.reservation_service import fulfill_next_reservation
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +99,9 @@ def return_book(issue_id):
     mark the issue as returned, increase the book's available quantity,
     and (if late) create a Fine record -- all together or not at all.
 
-    Returns (late_days, fine_amount) so the UI can tell the librarian
-    whether a fine was created.
+    Returns (late_days, fine_amount, fulfilled_student_id) so the UI
+    can tell the librarian whether a fine was created and whether a
+    waiting student's reservation is now ready.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -132,10 +134,21 @@ def return_book(issue_id):
                 (return_date, issue_id),
             )
 
-            cur.execute(
-                "UPDATE Books SET available_quantity = available_quantity + 1 WHERE book_id = %s",
-                (book_id,),
-            )
+            # check reservations BEFORE touching available_quantity --
+            # if someone has this book reserved, this copy is HELD for
+            # them, not added back to the general available pool.
+            # otherwise a different student could grab it via the normal
+            # Issue Book screen before the reserved student collects it.
+            fulfilled_student_id = fulfill_next_reservation(cur, book_id)
+
+            if fulfilled_student_id is None:
+                cur.execute(
+                    "UPDATE Books SET available_quantity = available_quantity + 1 WHERE book_id = %s",
+                    (book_id,),
+                )
+            # else: quantity intentionally NOT increased -- this copy
+            # is reserved. See issue_reserved_book() for how it
+            # eventually gets handed to the waiting student.
 
             fine_amount = None
             if late_days > 0:
@@ -147,18 +160,13 @@ def return_book(issue_id):
                     """,
                     (issue_id, late_days, fine_amount),
                 )
-
-            # NOTE: reservation handling ("if someone reserved this
-            # book, assign it to them next") belongs here too, but
-            # that depends on the Reservation module which doesn't
-            # exist yet (Phase 9). This is the natural place to add
-            # that check once it does.
         conn.commit()
 
     logger.info(
-        "Book returned: issue_id=%s late_days=%s fine=%s", issue_id, late_days, fine_amount
+        "Book returned: issue_id=%s late_days=%s fine=%s reservation_fulfilled_for=%s",
+        issue_id, late_days, fine_amount, fulfilled_student_id,
     )
-    return late_days, fine_amount
+    return late_days, fine_amount, fulfilled_student_id
 
 
 def _calculate_fine(late_days):
@@ -179,6 +187,89 @@ def _calculate_fine(late_days):
     # shouldn't happen since FINE_RULES covers 1 to infinity, but a
     # safe fallback is better than a silent None slipping through
     return 0
+
+
+def issue_reserved_book(reservation_id, librarian_id):
+    """
+    Hands a HELD copy (see return_book()) to the student whose
+    reservation was fulfilled. Deliberately does NOT touch
+    available_quantity -- that copy was never added back to the
+    general pool in the first place, so there's nothing to subtract.
+
+    No new "collected" status is needed on Reservation -- once a
+    matching Book_Issue record with status='issued' exists for this
+    student+book, that itself is the signal that the reservation was
+    actually picked up (see get_pending_pickups()'s query).
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT student_id, book_id, status FROM Reservation WHERE reservation_id = %s FOR UPDATE",
+                (reservation_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError("Reservation not found.")
+
+            student_id, book_id, status = row
+            if status != "fulfilled":
+                raise ValueError("This reservation isn't ready for pickup.")
+
+            issue_date = date.today()
+            due_date = issue_date + timedelta(days=ISSUE_PERIOD_DAYS)
+
+            cur.execute(
+                """
+                INSERT INTO Book_Issue
+                    (student_id, librarian_id, book_id, issue_date, due_date, status)
+                VALUES (%s, %s, %s, %s, %s, 'issued')
+                RETURNING issue_id
+                """,
+                (student_id, librarian_id, book_id, issue_date, due_date),
+            )
+            new_issue_id = cur.fetchone()[0]
+        conn.commit()
+
+    logger.info("Reserved book issued: reservation_id=%s issue_id=%s", reservation_id, new_issue_id)
+    return new_issue_id, due_date
+
+
+def get_pending_pickups():
+    """
+    Returns fulfilled reservations that haven't actually been picked
+    up yet -- i.e. no matching 'issued' Book_Issue exists for that
+    student+book combination. This is what a librarian would check to
+    know "who's waiting to collect a book that's ready for them".
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.reservation_id, u.name, b.title, r.reservation_date
+                FROM Reservation r
+                JOIN Users u ON r.student_id = u.user_id
+                JOIN Books b ON r.book_id = b.book_id
+                WHERE r.status = 'fulfilled'
+                AND NOT EXISTS (
+                    SELECT 1 FROM Book_Issue bi
+                    WHERE bi.student_id = r.student_id
+                    AND bi.book_id = r.book_id
+                    AND bi.status = 'issued'
+                )
+                ORDER BY r.reservation_date
+                """
+            )
+            rows = cur.fetchall()
+
+    pickups = []
+    for row in rows:
+        pickups.append({
+            "reservation_id": row[0],
+            "student_name": row[1],
+            "book_title": row[2],
+            "reservation_date": row[3],
+        })
+    return pickups
 
 
 def get_active_issues():

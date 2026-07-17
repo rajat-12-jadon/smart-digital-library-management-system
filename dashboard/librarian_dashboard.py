@@ -37,6 +37,16 @@ class LibrarianDashboard:
         )
         issue_book_button.pack(pady=5)
 
+        pending_pickups_button = tk.Button(
+            self.root, text="Pending Pickups", command=self.open_pending_pickups, width=20
+        )
+        pending_pickups_button.pack(pady=5)
+
+        change_password_button = tk.Button(
+            self.root, text="Change Password", command=self.open_change_password, width=20
+        )
+        change_password_button.pack(pady=5)
+
         logout_button = tk.Button(
             self.root, text="Logout", command=self.handle_logout, width=15
         )
@@ -49,6 +59,14 @@ class LibrarianDashboard:
     def open_issue_book(self):
         from modules.issue_return.issue_ui import IssueBookWindow
         IssueBookWindow(self.root, self.current_user)
+
+    def open_pending_pickups(self):
+        from modules.reservation.reservation_ui import PendingPickupsWindow
+        PendingPickupsWindow(self.root, self.current_user)
+
+    def open_change_password(self):
+        from dashboard.change_password_dialog import ChangePasswordDialog
+        ChangePasswordDialog(self.root, self.current_user)
 
     def handle_logout(self):
         self.root.destroy()
