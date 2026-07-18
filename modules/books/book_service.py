@@ -7,8 +7,11 @@ Same pattern as auth_service.py from Phase 2.
 """
 
 import logging
+import os
 
 from database import get_connection
+from config import QR_CODE_DIR
+from utils.qr_utils import generate_qr_code
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,21 @@ def add_book(title, author, category, publisher, isbn, edition, total_quantity):
                     ),
                 )
                 new_id = cur.fetchone()[0]
+
+                # generate the QR now that we have a real book_id,
+                # then store where it was saved. this is a second
+                # UPDATE in the same transaction as the INSERT above,
+                # so if anything fails here, the whole book creation
+                # rolls back too -- we don't want a book to exist
+                # without a QR code, or a QR file with no matching book
+                qr_filename = f"book_{new_id}.png"
+                qr_path = os.path.join(QR_CODE_DIR, qr_filename)
+                generate_qr_code(new_id, title, qr_path)
+
+                cur.execute(
+                    "UPDATE Books SET qr_path = %s WHERE book_id = %s",
+                    (qr_path, new_id),
+                )
             except Exception as e:
                 # unique_violation is psycopg2's error for a UNIQUE
                 # constraint break - that's how we know it's the ISBN,
@@ -68,29 +86,14 @@ def get_all_books():
             cur.execute(
                 """
                 SELECT book_id, title, author, category, publisher,
-                       isbn, edition, total_quantity, available_quantity
+                       isbn, edition, total_quantity, available_quantity, qr_path
                 FROM Books
                 ORDER BY title
                 """
             )
             rows = cur.fetchall()
 
-    # turning tuples into dicts so the UI can use column names
-    # instead of remembering row[0], row[1], etc.
-    books = []
-    for row in rows:
-        books.append({
-            "book_id": row[0],
-            "title": row[1],
-            "author": row[2],
-            "category": row[3],
-            "publisher": row[4],
-            "isbn": row[5],
-            "edition": row[6],
-            "total_quantity": row[7],
-            "available_quantity": row[8],
-        })
-    return books
+    return _rows_to_dicts(rows)
 
 
 def search_books(keyword):
@@ -105,7 +108,7 @@ def search_books(keyword):
             cur.execute(
                 """
                 SELECT book_id, title, author, category, publisher,
-                       isbn, edition, total_quantity, available_quantity
+                       isbn, edition, total_quantity, available_quantity, qr_path
                 FROM Books
                 WHERE title ILIKE %s OR author ILIKE %s OR isbn ILIKE %s
                 ORDER BY title
@@ -114,6 +117,13 @@ def search_books(keyword):
             )
             rows = cur.fetchall()
 
+    return _rows_to_dicts(rows)
+
+
+def _rows_to_dicts(rows):
+    # shared by get_all_books and search_books -- both SELECT the
+    # exact same columns in the exact same order, so one conversion
+    # function avoids keeping two copies in sync
     books = []
     for row in rows:
         books.append({
@@ -126,6 +136,7 @@ def search_books(keyword):
             "edition": row[6],
             "total_quantity": row[7],
             "available_quantity": row[8],
+            "qr_path": row[9],
         })
     return books
 

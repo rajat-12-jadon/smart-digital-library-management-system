@@ -7,6 +7,7 @@ database directly - calls book_service functions for all of that.
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+from PIL import Image, ImageTk
 
 from modules.books.book_service import (
     add_book,
@@ -70,14 +71,26 @@ class BookManagementWindow:
     def build_table(self):
         columns = ("book_id", "title", "author", "isbn", "total", "available")
 
-        # pack the delete button at the bottom FIRST, so it always
-        # reserves its own space no matter how small the window gets.
-        # if the treeview (which expands to fill space) is packed
-        # first, it can push this button off-screen when resized.
-        delete_button = tk.Button(
-            self.window, text="Delete Selected", command=self.handle_delete
+        # keyed by book_id -- populated in _fill_table, used by
+        # handle_view_qr to find the right image file for the
+        # selected row without adding qr_path as a visible column
+        self.book_qr_paths = {}
+
+        # buttons packed first (bottom) so they never get pushed
+        # off-screen, same fix as elsewhere. put both in a shared
+        # frame so they sit side by side
+        bottom_button_frame = tk.Frame(self.window)
+        bottom_button_frame.pack(side="bottom", pady=5)
+
+        view_qr_button = tk.Button(
+            bottom_button_frame, text="View QR Code", command=self.handle_view_qr
         )
-        delete_button.pack(side="bottom", pady=5)
+        view_qr_button.pack(side="left", padx=5)
+
+        delete_button = tk.Button(
+            bottom_button_frame, text="Delete Selected", command=self.handle_delete
+        )
+        delete_button.pack(side="left", padx=5)
 
         self.tree = ttk.Treeview(self.window, columns=columns, show="headings", height=8)
         for col in columns:
@@ -122,6 +135,7 @@ class BookManagementWindow:
                 book["total_quantity"],
                 book["available_quantity"],
             ))
+            self.book_qr_paths[book["book_id"]] = book["qr_path"]
 
     def handle_add_book(self):
         title = self.entries["Title"].get().strip()
@@ -183,3 +197,35 @@ class BookManagementWindow:
 
         messagebox.showinfo("Deleted", f"'{title}' was deleted.")
         self.refresh_table()
+
+    def handle_view_qr(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Select a book first.")
+            return
+
+        book_id = self.tree.item(selected[0])["values"][0]
+        title = self.tree.item(selected[0])["values"][1]
+        qr_path = self.book_qr_paths.get(book_id)
+
+        if not qr_path:
+            messagebox.showerror("Error", "No QR code found for this book.")
+            return
+
+        try:
+            qr_image = Image.open(qr_path)
+        except FileNotFoundError:
+            messagebox.showerror("Error", f"QR image file is missing: {qr_path}")
+            return
+
+        qr_window = tk.Toplevel(self.window)
+        qr_window.title(f"QR Code - {title}")
+
+        # keep a reference on the window itself (qr_window.photo = ...)
+        # -- without this, Python's garbage collector can clear the
+        # image right after this function returns, since nothing else
+        # holds onto it, and the label would show up blank
+        photo = ImageTk.PhotoImage(qr_image)
+        qr_window.photo = photo
+
+        tk.Label(qr_window, image=photo).pack(padx=20, pady=20)

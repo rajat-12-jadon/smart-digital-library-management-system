@@ -13,6 +13,7 @@ from tkinter import ttk, messagebox
 from modules.issue_return.issue_service import issue_book, return_book, get_active_issues
 from modules.students.student_service import get_all_students
 from modules.books.book_service import get_all_books
+from utils.qr_utils import scan_qr_code
 
 
 class IssueBookWindow:
@@ -48,6 +49,9 @@ class IssueBookWindow:
         tk.Label(form_frame, text="Book:").grid(row=1, column=0, sticky="e", padx=5, pady=8)
         self.book_combo = ttk.Combobox(form_frame, width=40, state="readonly")
         self.book_combo.grid(row=1, column=1, padx=5, pady=8)
+
+        scan_qr_button = tk.Button(form_frame, text="Scan QR", command=self.handle_scan_qr)
+        scan_qr_button.grid(row=1, column=2, padx=5, pady=8)
 
         issue_button = tk.Button(form_frame, text="Issue Book", command=self.handle_issue)
         issue_button.grid(row=2, column=0, columnspan=2, pady=15)
@@ -85,6 +89,7 @@ class IssueBookWindow:
 
         books = get_all_books()
         book_display_names = []
+        self.book_id_to_display = {}  # reverse of book_lookup, needed by handle_scan_qr
         for book in books:
             # only show books that actually have a copy available --
             # no point letting the librarian pick something they can't issue
@@ -92,6 +97,7 @@ class IssueBookWindow:
                 display = f"{book['title']} (available: {book['available_quantity']})"
                 book_display_names.append(display)
                 self.book_lookup[display] = book["book_id"]
+                self.book_id_to_display[book["book_id"]] = display
         self.book_combo["values"] = book_display_names
 
     def refresh_table(self):
@@ -108,6 +114,36 @@ class IssueBookWindow:
                 issue["due_date"],
                 issue["librarian_name"],
             ))
+
+    def handle_scan_qr(self):
+        # this BLOCKS while the camera window is open (see
+        # scan_qr_code's docstring) -- the whole Tkinter app will be
+        # unresponsive until the librarian scans something or presses
+        # Esc to cancel. Fine for a single button click like this.
+        messagebox.showinfo(
+            "Scan QR", "Camera will open. Show the book's QR code, or press Esc to cancel."
+        )
+
+        try:
+            book_id = scan_qr_code()
+        except RuntimeError as e:
+            messagebox.showerror("Camera Error", str(e))
+            return
+
+        if book_id is None:
+            messagebox.showinfo("Cancelled", "No QR code was scanned.")
+            return
+
+        display = self.book_id_to_display.get(book_id)
+        if display is None:
+            # scanned a real book, but it's not in the dropdown --
+            # meaning it has zero available copies right now
+            messagebox.showerror(
+                "Error", "This book was scanned but currently has no available copies."
+            )
+            return
+
+        self.book_combo.set(display)
 
     def handle_issue(self):
         student_display = self.student_combo.get()
