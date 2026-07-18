@@ -37,6 +37,11 @@ class AdminDashboard:
         )
         manage_librarians_button.pack(pady=5)
 
+        reports_button = tk.Button(
+            self.root, text="Reports", command=self.open_reports, width=20
+        )
+        reports_button.pack(pady=5)
+
         change_password_button = tk.Button(
             self.root, text="Change Password", command=self.open_change_password, width=20
         )
@@ -54,6 +59,10 @@ class AdminDashboard:
     def open_librarian_management(self):
         from modules.librarians.librarian_ui import LibrarianManagementWindow
         LibrarianManagementWindow(self.root)
+
+    def open_reports(self):
+        from modules.reports.report_ui import ReportsWindow
+        ReportsWindow(self.root)
 
     def open_change_password(self):
         from dashboard.change_password_dialog import ChangePasswordDialog
