@@ -272,6 +272,25 @@ def get_pending_pickups():
     return pickups
 
 
+def get_active_issue_ids_for_book(book_id):
+    """
+    Returns the list of active (status='issued') issue_ids for a
+    specific book, used by the "scan QR to return" flow -- a QR only
+    identifies WHICH BOOK, not which specific copy/student, so if
+    more than one student currently has this book issued, the
+    librarian needs to pick the right one manually rather than the
+    system guessing.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT issue_id FROM Book_Issue WHERE book_id = %s AND status = 'issued'",
+                (book_id,),
+            )
+            rows = cur.fetchall()
+    return [row[0] for row in rows]
+
+
 def get_active_issues():
     """
     Returns every currently-issued (not yet returned) book, joined

@@ -10,7 +10,9 @@ be selected.
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from modules.issue_return.issue_service import issue_book, return_book, get_active_issues
+from modules.issue_return.issue_service import (
+    issue_book, return_book, get_active_issues, get_active_issue_ids_for_book,
+)
 from modules.students.student_service import get_all_students
 from modules.books.book_service import get_all_books
 from utils.qr_utils import scan_qr_code
@@ -61,13 +63,22 @@ class IssueBookWindow:
 
         tk.Label(self.window, text="Currently Issued Books", font=("Arial", 11, "bold")).pack(pady=(10, 0))
 
-        # return button packed first (bottom) so it never gets pushed
+        # both buttons packed first (bottom) so they never get pushed
         # off-screen when the window is resized smaller -- same fix
-        # as book_ui.py and student_ui.py
-        return_button = tk.Button(
-            self.window, text="Return Selected", command=self.handle_return
+        # as book_ui.py and student_ui.py. shared frame so they sit
+        # side by side instead of stacking
+        bottom_button_frame = tk.Frame(self.window)
+        bottom_button_frame.pack(side="bottom", pady=5)
+
+        scan_return_button = tk.Button(
+            bottom_button_frame, text="Scan QR to Return", command=self.handle_scan_return
         )
-        return_button.pack(side="bottom", pady=5)
+        scan_return_button.pack(side="left", padx=5)
+
+        return_button = tk.Button(
+            bottom_button_frame, text="Return Selected", command=self.handle_return
+        )
+        return_button.pack(side="left", padx=5)
 
         self.tree = ttk.Treeview(self.window, columns=columns, show="headings", height=10)
         for col in columns:
@@ -144,6 +155,66 @@ class IssueBookWindow:
             return
 
         self.book_combo.set(display)
+
+    def handle_scan_return(self):
+        messagebox.showinfo(
+            "Scan QR", "Camera will open. Show the book's QR code, or press Esc to cancel."
+        )
+
+        try:
+            book_id = scan_qr_code()
+        except RuntimeError as e:
+            messagebox.showerror("Camera Error", str(e))
+            return
+
+        if book_id is None:
+            messagebox.showinfo("Cancelled", "No QR code was scanned.")
+            return
+
+        matching_issue_ids = get_active_issue_ids_for_book(book_id)
+
+        if len(matching_issue_ids) == 0:
+            messagebox.showerror("Error", "No active issue found for this book.")
+            return
+
+        # clear any existing selection first
+        self.tree.selection_remove(self.tree.selection())
+
+        if len(matching_issue_ids) == 1:
+            # exactly one match -- find that row in the table and
+            # select it automatically, so the librarian just needs to
+            # confirm by clicking "Return Selected"
+            target_issue_id = matching_issue_ids[0]
+            for item in self.tree.get_children():
+                if self.tree.item(item)["values"][0] == target_issue_id:
+                    self.tree.selection_set(item)
+                    self.tree.see(item)  # scrolls to it if not currently visible
+                    break
+            messagebox.showinfo(
+                "Found", "Matching issue selected below. Click 'Return Selected' to confirm."
+            )
+        else:
+            # multiple students currently have this book -- can't
+            # guess which physical copy this is. Instead of just
+            # telling the librarian the count, highlight EVERY
+            # matching row so they're immediately visible -- clicking
+            # any single one of them narrows the selection down to
+            # just that row, ready for "Return Selected"
+            matching_items = []
+            for item in self.tree.get_children():
+                if self.tree.item(item)["values"][0] in matching_issue_ids:
+                    matching_items.append(item)
+
+            self.tree.selection_set(matching_items)
+            if matching_items:
+                self.tree.see(matching_items[0])
+
+            messagebox.showinfo(
+                "Multiple Matches",
+                f"{len(matching_issue_ids)} students currently have this book issued -- "
+                "all of them are highlighted below. Click on the correct student's row, "
+                "then click 'Return Selected'.",
+            )
 
     def handle_issue(self):
         student_display = self.student_combo.get()
