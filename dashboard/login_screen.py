@@ -4,8 +4,9 @@ Takes email + password, checks with auth_service, shows dashboard or error.
 """
 
 import tkinter as tk
+from tkinter import simpledialog, messagebox
 
-from auth.auth_service import login, AuthenticationError
+from auth.auth_service import login, forgot_password, AuthenticationError
 
 
 class LoginScreen:
@@ -48,6 +49,12 @@ class LoginScreen:
         self.error_label = tk.Label(self.root, text="", fg="red")
         self.error_label.pack()
 
+        forgot_password_button = tk.Button(
+            self.root, text="Forgot Password?", command=self.handle_forgot_password,
+            relief="flat", fg="blue", cursor="hand2",
+        )
+        forgot_password_button.pack(pady=5)
+
     def handle_login(self):
         # get whatever the user typed
         email = self.email_entry.get()
@@ -81,6 +88,26 @@ class LoginScreen:
             self._open_dashboard(new_root, current_user)
 
         new_root.mainloop()
+
+    def handle_forgot_password(self):
+        email = simpledialog.askstring(
+            "Forgot Password",
+            "Enter your account email. If it exists, a temporary password will be emailed to you.",
+        )
+
+        if not email:
+            return  # user pressed Cancel or left it empty
+
+        forgot_password(email)
+
+        # SAME message shown whether the email exists or not -- this
+        # is deliberate (see forgot_password()'s docstring). Showing a
+        # different message for "email not found" would let an
+        # attacker use this form to check which emails are registered.
+        messagebox.showinfo(
+            "Request Sent",
+            "If an account with that email exists, a temporary password has been sent to it.",
+        )
 
     def _open_dashboard(self, root, current_user):
         # clears out whatever screen was showing (login form or the

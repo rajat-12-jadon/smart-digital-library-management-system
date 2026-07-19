@@ -8,6 +8,8 @@ never a raw DB row.
 """
 
 import logging
+import secrets
+import string
 from dataclasses import dataclass
 
 from database import get_connection
@@ -179,6 +181,73 @@ def change_own_password(user_id: int, current_password: str, new_password: str) 
 
     logger.info("Password voluntarily changed by user_id=%s", user_id)
     _log_activity(user_id, "PASSWORD_CHANGED_BY_SELF")
+
+
+def forgot_password(email: str) -> None:
+    """
+    "Forgot Password" flow -- generates a random temporary password,
+    sets it on the account, forces a change on next login (reusing
+    the same force_password_change flag from Phase 6), and emails it
+    to the user.
+
+    Deliberately does NOT raise an error or reveal anything if the
+    email doesn't exist -- same email-enumeration protection
+    reasoning as login()'s generic error message. The UI should show
+    the same "if that email exists, we sent something" message either
+    way, so an attacker can't use this to check which emails are
+    registered.
+    """
+    from auth.password_utils import hash_password
+    from utils.email_utils import send_email, EmailConfigError
+
+    email = (email or "").strip().lower()
+    if not email:
+        return
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, name FROM Users WHERE email = %s", (email,))
+            row = cur.fetchone()
+
+            if row is None:
+                logger.info("Forgot-password requested for unknown email: %s", email)
+                return  # silently do nothing -- see docstring
+
+            user_id, name = row
+
+            # random 12-character password from letters+digits -- not
+            # meant to be memorable, the user is expected to change it
+            # immediately (force_password_change=TRUE below enforces that)
+            alphabet = string.ascii_letters + string.digits
+            temp_password = "".join(secrets.choice(alphabet) for _ in range(12))
+            hashed = hash_password(temp_password)
+
+            cur.execute(
+                """
+                UPDATE Users
+                SET password = %s, force_password_change = TRUE
+                WHERE user_id = %s
+                """,
+                (hashed, user_id),
+            )
+        conn.commit()
+
+    logger.info("Temporary password issued for user_id=%s", user_id)
+    _log_activity(user_id, "PASSWORD_RESET_VIA_FORGOT_PASSWORD")
+
+    try:
+        send_email(
+            email,
+            "Your Smart Digital Library temporary password",
+            f"Hi {name},\n\n"
+            f"Your temporary password is: {temp_password}\n\n"
+            f"You'll be asked to set a new password when you log in.\n\n"
+            f"- Smart Digital Library",
+        )
+    except EmailConfigError:
+        logger.error("Email not configured -- could not send temp password to %s", email)
+    except Exception:
+        logger.exception("Failed to send forgot-password email to %s", email)
 
 
 def _log_activity(user_id: int, action: str) -> None:

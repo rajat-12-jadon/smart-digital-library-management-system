@@ -43,3 +43,15 @@ FINE_RULES = [
     (8, 15, 20),
     (16, None, 50),
 ]
+
+# ---------------------------------------------------------------------------
+# Email configuration (Phase 12)
+# Gmail's SMTP server, using an App Password (not the real account
+# password) -- same "never hardcode secrets" principle as DB_CONFIG.
+# ---------------------------------------------------------------------------
+EMAIL_CONFIG = {
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,  # 587 = TLS (encrypted), the standard port for Gmail SMTP
+    "sender_email": os.getenv("LMS_EMAIL_ADDRESS", ""),
+    "sender_password": os.getenv("LMS_EMAIL_APP_PASSWORD", ""),
+}

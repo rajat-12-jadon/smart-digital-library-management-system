@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from modules.fine.fine_service import get_pending_fines, mark_fine_paid
+from modules.notifications.notification_service import send_all_reminders
 
 
 class LibrarianDashboard:
@@ -50,6 +51,11 @@ class LibrarianDashboard:
         )
         manage_fines_button.pack(pady=5)
 
+        send_reminders_button = tk.Button(
+            self.root, text="Send Reminders", command=self.handle_send_reminders, width=20
+        )
+        send_reminders_button.pack(pady=5)
+
         change_password_button = tk.Button(
             self.root, text="Change Password", command=self.open_change_password, width=20
         )
@@ -74,6 +80,17 @@ class LibrarianDashboard:
 
     def open_manage_fines(self):
         ManageFinesWindow(self.root)
+
+    def handle_send_reminders(self):
+        # this blocks the UI briefly while emails send (no progress
+        # bar) -- acceptable for a manually-triggered, once-a-day
+        # action, but worth knowing as a limitation if this were ever
+        # used with hundreds of recipients
+        result = send_all_reminders()
+        messagebox.showinfo(
+            "Reminders Sent",
+            f"Sent: {result['sent']}\nFailed: {result['failed']}",
+        )
 
     def open_change_password(self):
         from dashboard.change_password_dialog import ChangePasswordDialog
