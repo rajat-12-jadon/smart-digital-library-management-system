@@ -55,11 +55,13 @@ def get_overdue():
 
 def get_reservations_ready_for_pickup():
     """
-    Fulfilled reservations not yet collected -- same logic as
-    get_pending_pickups() in issue_service.py (Phase 9), duplicated
-    here rather than imported to avoid a cross-module dependency for
-    what's a fairly small query; both exist for a reason (one drives
-    a UI table, this one drives emails).
+    Fulfilled reservations not yet collected -- Reservation.issue_id
+    is still NULL (set by issue_reserved_book() once actually
+    collected). Same logic as get_pending_pickups() in
+    issue_service.py (Phase 9), duplicated here rather than imported
+    to avoid a cross-module dependency for what's a fairly small
+    query; both exist for a reason (one drives a UI table, this one
+    drives emails).
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -69,13 +71,7 @@ def get_reservations_ready_for_pickup():
                 FROM Reservation r
                 JOIN Users u ON r.student_id = u.user_id
                 JOIN Books b ON r.book_id = b.book_id
-                WHERE r.status = 'fulfilled'
-                AND NOT EXISTS (
-                    SELECT 1 FROM Book_Issue bi
-                    WHERE bi.student_id = r.student_id
-                    AND bi.book_id = r.book_id
-                    AND bi.status = 'issued'
-                )
+                WHERE r.status = 'fulfilled' AND r.issue_id IS NULL
                 """
             )
             rows = cur.fetchall()

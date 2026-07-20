@@ -159,7 +159,26 @@ def delete_student(user_id):
                     "Cannot delete this student - they have an unpaid fine."
                 )
 
-            cur.execute("DELETE FROM Users WHERE user_id = %s AND role = 'student'", (user_id,))
+            try:
+                cur.execute(
+                    "DELETE FROM Users WHERE user_id = %s AND role = 'student'", (user_id,)
+                )
+            except Exception as e:
+                # catches any OTHER foreign key still pointing at this
+                # user that we didn't explicitly check for above (e.g.
+                # Book_Issue history from books they've already
+                # returned -- that's real borrowing history worth
+                # keeping, not something to silently lose). Checking
+                # for "foreign key" in the error text is the same
+                # pattern used elsewhere in this project for "unique"
+                # violations -- catch the DB's own integrity error
+                # rather than re-implementing every possible check by hand.
+                if "foreign key" in str(e).lower():
+                    raise ValueError(
+                        "Cannot delete this student - they have book issue history "
+                        "on record that must be preserved."
+                    )
+                raise
         conn.commit()
 
     logger.info("Student deleted: user_id=%s", user_id)

@@ -12,8 +12,8 @@ Usage: just edit the three values below and run it.
 from database import init_pool, get_connection, close_pool
 
 # ---- edit these before running ----
-STUDENT_EMAIL = "rajat@test.com"     # must be an existing student
-LIBRARIAN_EMAIL = "adarsh@test.com"  # must be an existing librarian
+STUDENT_EMAIL = "aman@test.com"     # must be an existing student
+LIBRARIAN_EMAIL = "librarian@test.com"  # must be an existing librarian
 BOOK_TITLE = "Harry Potter"          # must be an existing book (exact title)
 DAYS_OVERDUE = 6                     # how many days past the due date
 # ------------------------------------
@@ -57,6 +57,24 @@ def create_test_overdue_issue():
                 return
             book_id = book_row[0]
 
+            # BUG FIX: this script previously inserted a Book_Issue row
+            # directly without reducing available_quantity, unlike the
+            # real issue_book() function. That desynced the book's
+            # quantity from reality -- returning this fake issue later
+            # would try to push available_quantity above total_quantity,
+            # violating the available_not_exceed_total CHECK constraint
+            # and crashing. Fixed by mirroring what issue_book() does:
+            # check availability first, then decrement it here too.
+            cur.execute(
+                "SELECT available_quantity FROM Books WHERE book_id = %s FOR UPDATE",
+                (book_id,),
+            )
+            available = cur.fetchone()[0]
+            if available <= 0:
+                print(f"'{BOOK_TITLE}' has no available copies -- can't create a test issue for it.")
+                close_pool()
+                return
+
             # issue_date is set further back than due_date so the
             # numbers stay realistic (14 day loan period + how overdue
             # it is), though nothing actually checks issue_date's
@@ -79,6 +97,11 @@ def create_test_overdue_issue():
                 (student_id, librarian_id, book_id, 14 + DAYS_OVERDUE, DAYS_OVERDUE),
             )
             new_issue_id = cur.fetchone()[0]
+
+            cur.execute(
+                "UPDATE Books SET available_quantity = available_quantity - 1 WHERE book_id = %s",
+                (book_id,),
+            )
         conn.commit()
 
     print(f"Test overdue issue created: issue_id={new_issue_id}")

@@ -79,7 +79,8 @@ CREATE TABLE Reservation (
     student_id        INTEGER NOT NULL REFERENCES Users(user_id),
     book_id           INTEGER NOT NULL REFERENCES Books(book_id),
     reservation_date  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    status            reservation_status NOT NULL DEFAULT 'pending'
+    status            reservation_status NOT NULL DEFAULT 'pending',
+    issue_id          INTEGER REFERENCES Book_Issue(issue_id)  -- set once collected, see issue_reserved_book()
 );
 
 -- ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ CREATE TABLE Fine (
 -- ---------------------------------------------------------------------------
 CREATE TABLE Activity_Log (
     log_id      SERIAL PRIMARY KEY,
-    user_id     INTEGER REFERENCES Users(user_id),
+    user_id     INTEGER REFERENCES Users(user_id) ON DELETE SET NULL,
     action      VARCHAR(255) NOT NULL,
     timestamp   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

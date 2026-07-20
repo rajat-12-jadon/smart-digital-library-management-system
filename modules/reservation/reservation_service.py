@@ -19,23 +19,51 @@ from database import get_connection
 logger = logging.getLogger(__name__)
 
 
+def held_copy_count(cur, book_id):
+    """
+    Counts how many copies of this book are earmarked for a specific
+    student via a fulfilled-but-uncollected reservation -- i.e. copies
+    that are back in available_quantity (see issue_service.return_book,
+    which always increments it now), but shouldn't be handed to just
+    anyone through the normal Issue Book flow. "Uncollected" means
+    issue_id is still NULL (see issue_reserved_book(), which sets it
+    once a reservation is actually collected).
+
+    Shared by reserve_book() (below) and issue_service.issue_book() --
+    lives here rather than in issue_service.py to avoid a circular
+    import, since issue_service already imports from this module.
+    """
+    cur.execute(
+        "SELECT COUNT(*) FROM Reservation WHERE book_id = %s AND status = 'fulfilled' AND issue_id IS NULL",
+        (book_id,),
+    )
+    return cur.fetchone()[0]
+
+
 def reserve_book(student_id, book_id):
     """
-    Reserves a book for a student. Only allowed if the book currently
-    has zero available copies -- if copies exist, reserving doesn't
-    make sense, they should just be issued the book.
+    Reserves a book for a student. Only allowed if there's no
+    EFFECTIVELY available copy for a walk-in student -- that's
+    available_quantity minus copies already held for someone else's
+    pending pickup, not just the raw available_quantity. Without this
+    distinction, a student could be told "just issue it directly" for
+    a copy that's actually earmarked for someone ahead of them in line.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT available_quantity FROM Books WHERE book_id = %s",
+                "SELECT available_quantity FROM Books WHERE book_id = %s FOR UPDATE",
                 (book_id,),
             )
             row = cur.fetchone()
             if row is None:
                 raise ValueError("Book not found.")
 
-            if row[0] > 0:
+            available_quantity = row[0]
+            held_count = held_copy_count(cur, book_id)
+            effective_available = available_quantity - held_count
+
+            if effective_available > 0:
                 raise ValueError(
                     "This book currently has copies available -- it can be issued directly."
                 )
@@ -50,6 +78,26 @@ def reserve_book(student_id, book_id):
             already_reserved = cur.fetchone()[0]
             if already_reserved > 0:
                 raise ValueError("You already have a pending reservation for this book.")
+
+            # also block if a PAST reservation for this student+book was
+            # already fulfilled but never actually collected -- without
+            # this check, a student could end up with two separate
+            # "ready for pickup" entries for the same book (one bug
+            # found through real testing: this caused duplicate
+            # reminder emails for the same book)
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM Reservation
+                WHERE student_id = %s AND book_id = %s
+                AND status = 'fulfilled' AND issue_id IS NULL
+                """,
+                (student_id, book_id),
+            )
+            already_waiting_for_pickup = cur.fetchone()[0]
+            if already_waiting_for_pickup > 0:
+                raise ValueError(
+                    "This book is already reserved and waiting for you to pick up."
+                )
 
             cur.execute(
                 """

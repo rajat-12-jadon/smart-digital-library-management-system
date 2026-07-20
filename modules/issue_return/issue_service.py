@@ -14,7 +14,7 @@ from datetime import date, timedelta
 
 from database import get_connection
 from config import FINE_RULES
-from modules.reservation.reservation_service import fulfill_next_reservation
+from modules.reservation.reservation_service import fulfill_next_reservation, held_copy_count
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,21 @@ def issue_book(student_id, librarian_id, book_id):
             available_quantity = row[0]
             if available_quantity <= 0:
                 raise ValueError("This book is not currently available.")
+
+            # some of these "available" copies might already be
+            # earmarked for other students via a fulfilled-but-not-yet-
+            # collected reservation (see _held_copy_count). The normal
+            # Issue Book flow should never hand those out to a walk-in
+            # student -- only issue_reserved_book() (Pending Pickups)
+            # can allocate a held copy, and only to the student it's
+            # held for.
+            held_count = held_copy_count(cur, book_id)
+            effective_available = available_quantity - held_count
+            if effective_available <= 0:
+                raise ValueError(
+                    "All available copies of this book are reserved for other "
+                    "students. Use Pending Pickups to issue to a waiting student."
+                )
 
             # don't let a student have two active copies of the same
             # book issued at once
@@ -134,21 +149,23 @@ def return_book(issue_id):
                 (return_date, issue_id),
             )
 
-            # check reservations BEFORE touching available_quantity --
-            # if someone has this book reserved, this copy is HELD for
-            # them, not added back to the general available pool.
-            # otherwise a different student could grab it via the normal
-            # Issue Book screen before the reserved student collects it.
-            fulfilled_student_id = fulfill_next_reservation(cur, book_id)
+            # ALWAYS add the copy back to available_quantity on return --
+            # no exceptions, no special "held" case. Simple, uniform
+            # math (return = +1, issue = -1, always) is what makes
+            # this impossible to desync. A reserved student's priority
+            # is enforced separately, in issue_book() and reserve_book()
+            # (see _held_copy_count below), NOT by manipulating this
+            # number -- that fragile "don't increment if reserved"
+            # design caused repeated real bugs and has been removed.
+            cur.execute(
+                "UPDATE Books SET available_quantity = available_quantity + 1 WHERE book_id = %s",
+                (book_id,),
+            )
 
-            if fulfilled_student_id is None:
-                cur.execute(
-                    "UPDATE Books SET available_quantity = available_quantity + 1 WHERE book_id = %s",
-                    (book_id,),
-                )
-            # else: quantity intentionally NOT increased -- this copy
-            # is reserved. See issue_reserved_book() for how it
-            # eventually gets handed to the waiting student.
+            # still runs, purely to mark the oldest pending reservation
+            # (if any) as fulfilled -- this is now just a notification/
+            # priority flag, not a quantity-control mechanism
+            fulfilled_student_id = fulfill_next_reservation(cur, book_id)
 
             fine_amount = None
             if late_days > 0:
@@ -191,10 +208,15 @@ def _calculate_fine(late_days):
 
 def issue_reserved_book(reservation_id, librarian_id):
     """
-    Hands a HELD copy (see return_book()) to the student whose
-    reservation was fulfilled. Deliberately does NOT touch
-    available_quantity -- that copy was never added back to the
-    general pool in the first place, so there's nothing to subtract.
+    Hands a copy to the student whose reservation was fulfilled.
+
+    Quantity handling is now consistent with every other issue:
+    available_quantity was already incremented back by return_book()
+    (no more "held, never added to the pool" special case -- see
+    return_book()'s comments for why that fragile design was removed),
+    so this DOES decrement it here, exactly like issue_book() does.
+    The "this copy belongs to this specific student" priority is
+    enforced by issue_book()'s held-copy check, not by quantity math.
 
     No new "collected" status is needed on Reservation -- once a
     matching Book_Issue record with status='issued' exists for this
@@ -215,6 +237,18 @@ def issue_reserved_book(reservation_id, librarian_id):
             if status != "fulfilled":
                 raise ValueError("This reservation isn't ready for pickup.")
 
+            # defensive check -- shouldn't normally fail (a fulfilled
+            # reservation implies a copy came back), but never trust
+            # that without verifying, especially with FOR UPDATE
+            # locking this book's row against concurrent changes
+            cur.execute(
+                "SELECT available_quantity FROM Books WHERE book_id = %s FOR UPDATE",
+                (book_id,),
+            )
+            available_quantity = cur.fetchone()[0]
+            if available_quantity <= 0:
+                raise ValueError("No copies currently available for this book.")
+
             issue_date = date.today()
             due_date = issue_date + timedelta(days=ISSUE_PERIOD_DAYS)
 
@@ -228,6 +262,19 @@ def issue_reserved_book(reservation_id, librarian_id):
                 (student_id, librarian_id, book_id, issue_date, due_date),
             )
             new_issue_id = cur.fetchone()[0]
+
+            cur.execute(
+                "UPDATE Books SET available_quantity = available_quantity - 1 WHERE book_id = %s",
+                (book_id,),
+            )
+
+            # record WHICH issue collected this reservation -- this is
+            # what makes "has this been picked up" a fact instead of a
+            # guess (see get_pending_pickups())
+            cur.execute(
+                "UPDATE Reservation SET issue_id = %s WHERE reservation_id = %s",
+                (new_issue_id, reservation_id),
+            )
         conn.commit()
 
     logger.info("Reserved book issued: reservation_id=%s issue_id=%s", reservation_id, new_issue_id)
@@ -237,9 +284,17 @@ def issue_reserved_book(reservation_id, librarian_id):
 def get_pending_pickups():
     """
     Returns fulfilled reservations that haven't actually been picked
-    up yet -- i.e. no matching 'issued' Book_Issue exists for that
-    student+book combination. This is what a librarian would check to
-    know "who's waiting to collect a book that's ready for them".
+    up yet -- i.e. Reservation.issue_id is still NULL (see
+    issue_reserved_book(), which sets it once collected). This is
+    what a librarian would check to know "who's waiting to collect a
+    book that's ready for them".
+
+    Previously this guessed based on whether a CURRENTLY 'issued'
+    Book_Issue existed for the same student+book -- that guess broke
+    once the book was returned again later (the issue's status flips
+    away from 'issued', making an already-collected reservation look
+    uncollected again). Found via testing a two-student reservation
+    queue and fixed with a direct issue_id link instead of a guess.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -249,13 +304,7 @@ def get_pending_pickups():
                 FROM Reservation r
                 JOIN Users u ON r.student_id = u.user_id
                 JOIN Books b ON r.book_id = b.book_id
-                WHERE r.status = 'fulfilled'
-                AND NOT EXISTS (
-                    SELECT 1 FROM Book_Issue bi
-                    WHERE bi.student_id = r.student_id
-                    AND bi.book_id = r.book_id
-                    AND bi.status = 'issued'
-                )
+                WHERE r.status = 'fulfilled' AND r.issue_id IS NULL
                 ORDER BY r.reservation_date
                 """
             )

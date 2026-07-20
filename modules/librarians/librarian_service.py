@@ -134,7 +134,20 @@ def delete_librarian(user_id):
                     "Cannot delete this librarian - they have book issue history on record."
                 )
 
-            cur.execute("DELETE FROM Users WHERE user_id = %s AND role = 'librarian'", (user_id,))
+            try:
+                cur.execute(
+                    "DELETE FROM Users WHERE user_id = %s AND role = 'librarian'", (user_id,)
+                )
+            except Exception as e:
+                # same reasoning as student_service.delete_student() --
+                # catches any foreign key we didn't explicitly check
+                # for above, instead of crashing with a raw DB error
+                if "foreign key" in str(e).lower():
+                    raise ValueError(
+                        "Cannot delete this librarian - related records exist that "
+                        "must be preserved."
+                    )
+                raise
         conn.commit()
 
     logger.info("Librarian deleted: user_id=%s", user_id)
